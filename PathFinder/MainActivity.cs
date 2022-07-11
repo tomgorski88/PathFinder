@@ -203,7 +203,7 @@ namespace PathFinder
             fields.Add(Place.Field.LatLng);
 
             Intent intent = new Autocomplete.IntentBuilder(AutocompleteActivityMode.Overlay, fields)
-                .SetCountry("NG")
+                .SetCountry("PL")
                 .Build(this);
 
             StartActivityForResult(intent, 0);

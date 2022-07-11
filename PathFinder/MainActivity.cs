@@ -1,5 +1,6 @@
 ﻿using Android.App;
 using Android.OS;
+using Android.Support.V7.App;
 using Android.Runtime;
 using Android.Widget;
 using Android.Gms.Maps;
@@ -10,11 +11,10 @@ using Android.Support.V4.App;
 using PathFinder.Helpers;
 using System;
 using PathFinder.Fragments;
+using Google.Places;
 using System.Collections.Generic;
 using Android.Content;
-using Android.Support.V7.App;
-using Google.Places;
-using Newtonsoft.Json;
+using Result = Android.App.Result;
 
 namespace PathFinder
 {
@@ -24,29 +24,25 @@ namespace PathFinder
         readonly string[] permissionGroup = { Manifest.Permission.AccessFineLocation, Manifest.Permission.AccessCoarseLocation };
 
         TextView placeTextView;
-        Button getDirectionsButton;
+        Button getDirectionButton;
         Button startTripButton;
         ImageView centerMarker;
+        RelativeLayout placeLayout;
         ImageButton locationButton;
+
         GoogleMap map;
         FusedLocationProviderClient locationProviderClient;
         Android.Locations.Location myLastLocation;
-        MapHelpers mapHelper = new MapHelpers();
-        ProgressDialogFragment ProgressDialog;
-        RelativeLayout placeLayout;
+        LatLng mypostion;
+        LatLng destinationPoint;
         LocationRequest mLocationRequest;
         LocationCallbackHelper mLocationCallback = new LocationCallbackHelper();
-        ISharedPreferences pref = Application.Context.GetSharedPreferences("markers", FileCreationMode.Private);
-        ISharedPreferences pref2 = Application.Context.GetSharedPreferences("currentKey", FileCreationMode.Private);
-        ISharedPreferencesEditor editor;
-        ISharedPreferencesEditor editor2;
-        List<LocationMarker> markers = new List<LocationMarker>();
-        Locations locationMarkers = new Locations();
 
-        bool directionDrawn = false;
+        MapHelpers mapHelper = new MapHelpers();
+        ProgressDialogFragment ProgressDialogue;
 
-        private LatLng myposition;
-        private LatLng destinationPoint;
+        // Flags
+        bool directionDrawn;
         private bool tripStarted;
 
         protected override void OnCreate(Bundle savedInstanceState)
@@ -57,69 +53,47 @@ namespace PathFinder
             SetContentView(Resource.Layout.activity_main);
 
             RequestPermissions(permissionGroup, 0);
-
             SupportMapFragment mapFragment = (SupportMapFragment)SupportFragmentManager.FindFragmentById(Resource.Id.map);
             mapFragment.GetMapAsync(this);
+
             if (!PlacesApi.IsInitialized)
             {
-                var key = Resources.GetString(Resource.String.mapkey);
+                string key = Resources.GetString(Resource.String.mapkey);
                 PlacesApi.Initialize(this, key);
             }
 
-            editor = pref.Edit();
-
-            var markersJson = pref.GetString("markers", string.Empty);
-            if (!string.IsNullOrEmpty(markersJson))
-            {
-                locationMarkers = JsonConvert.DeserializeObject<Locations>(markersJson);                
-            } else
-            {
-                locationMarkers.LocationMarkers = markers;
-            }
-            
+            startTripButton = (Button)FindViewById(Resource.Id.startTripButton);
             placeLayout = (RelativeLayout)FindViewById(Resource.Id.placeLayout);
             centerMarker = (ImageView)FindViewById(Resource.Id.centerMarker);
             placeTextView = (TextView)FindViewById(Resource.Id.placeTextView);
-            getDirectionsButton = (Button)FindViewById(Resource.Id.getDirectionsButton);
-            startTripButton = (Button)FindViewById(Resource.Id.startTripButton);
+            getDirectionButton = (Button)FindViewById(Resource.Id.getDirectionsButton);
             locationButton = (ImageButton)FindViewById(Resource.Id.locationButton);
-            getDirectionsButton.Click += GetDirectionButton_Click;
-            placeLayout.Click += PlaceLayout_Click;
-            startTripButton.Click += StartTripButton_Click;
             locationButton.Click += LocationButton_Click;
+            getDirectionButton.Click += GetDirectionButton_Click;
+            startTripButton.Click += StartTripButton_Click;
+            placeLayout.Click += PlaceLayout_Click;
 
             CreateLocationRequest();
+
         }
 
-        private async void LocationButton_Click(object sender, EventArgs e)
+        private void LocationButton_Click(object sender, EventArgs e)
         {
-            var key = Resources.GetString(Resource.String.mapkey);
-            var myPosition = new LatLng(destinationPoint.Latitude, destinationPoint.Longitude);
-            var address = await mapHelper.FindCoordinateAddress(myPosition, key);
-            var location = new LocationMarker { Address = address, Lng = destinationPoint.Longitude, Ltd = destinationPoint.Latitude};
-            mapHelper.AddMarker(location, map);
-            locationMarkers.LocationMarkers.Add(location);
-
-            string jsonString = JsonConvert.SerializeObject(locationMarkers);            
-
-            editor.PutString($"markers", jsonString);
-            editor.Apply();
+            DisplayLocation();
         }
 
         private void StartTripButton_Click(object sender, EventArgs e)
         {
             if (!tripStarted)
             {
-                var alert = new Android.Support.V7.App.AlertDialog.Builder(this);
+                Android.Support.V7.App.AlertDialog.Builder alert = new Android.Support.V7.App.AlertDialog.Builder(this);
                 alert.SetTitle("Start Trip");
-                alert.SetMessage("Are you sure?");
+                alert.SetMessage("Are you sure");
                 alert.SetPositiveButton("Start", (thisalert, args) =>
                 {
+                    locationProviderClient.RequestLocationUpdates(mLocationRequest, mLocationCallback, null);
                     tripStarted = true;
-                    var key = Resources.GetString(Resource.String.mapkey);
-                    myposition = new LatLng(50.15, 21.97);
-                    mapHelper.UpdateLocationToDestination(myposition, destinationPoint, map, key);
-                    startTripButton.Text = "Stop trip";
+                    startTripButton.Text = "Stop Trip";
                 });
 
                 alert.SetNegativeButton("Cancel", (thisalert, args) =>
@@ -128,17 +102,19 @@ namespace PathFinder
                 });
 
                 alert.Show();
-            } else
+
+            }
+            else
             {
-                var alert = new Android.Support.V7.App.AlertDialog.Builder(this);
+                Android.Support.V7.App.AlertDialog.Builder alert = new Android.Support.V7.App.AlertDialog.Builder(this);
                 alert.SetTitle("Stop Trip");
-                alert.SetMessage("Are you sure?");
+                alert.SetMessage("Are you sure");
                 alert.SetPositiveButton("Stop", (thisalert, args) =>
                 {
                     locationProviderClient.RequestLocationUpdates(mLocationRequest, mLocationCallback, null);
                     tripStarted = false;
-                    startTripButton.Text = "Start trip";
-                    ResetApp();
+                    startTripButton.Text = "Start Trip";
+                    Resetapp();
                 });
 
                 alert.SetNegativeButton("Cancel", (thisalert, args) =>
@@ -148,92 +124,89 @@ namespace PathFinder
 
                 alert.Show();
             }
+
         }
-        void ResetApp()
+
+        void Resetapp()
         {
             directionDrawn = false;
             map.Clear();
             centerMarker.Visibility = Android.Views.ViewStates.Visible;
-            getDirectionsButton.Visibility = Android.Views.ViewStates.Visible;
+            getDirectionButton.Visibility = Android.Views.ViewStates.Visible;
             startTripButton.Visibility = Android.Views.ViewStates.Invisible;
-            CreateMarkers();
             DisplayLocation();
-
         }
 
-        public void CreateLocationRequest()
+
+
+        void CreateLocationRequest()
         {
             mLocationRequest = new LocationRequest();
-            mLocationRequest.SetInterval(5000);
-            mLocationRequest.SetFastestInterval(5000);
+            mLocationRequest.SetInterval(5);
+            mLocationRequest.SetFastestInterval(5);
             mLocationRequest.SetPriority(LocationRequest.PriorityHighAccuracy);
             mLocationRequest.SetSmallestDisplacement(1);
-            mLocationCallback.OnLocationFound += MLocationCallBack_OnLocationFound;
+            mLocationCallback.OnLocationFound += MLocationCallback_OnLocationFound;
             if (locationProviderClient == null)
             {
                 locationProviderClient = LocationServices.GetFusedLocationProviderClient(this);
             }
         }
 
-        private void MLocationCallBack_OnLocationFound(object sender, LocationCallbackHelper.OnLocationCapturedEventArgs e)
+        private void MLocationCallback_OnLocationFound(object sender, LocationCallbackHelper.OnLocationCapturedEventArgs e)
         {
-            
             myLastLocation = e.Location;
+            // Updates Location when app is normal
             if (!directionDrawn)
             {
                 if (myLastLocation != null)
                 {
-                    myposition = new LatLng(50.15, 21.97);
-                    map.AnimateCamera(CameraUpdateFactory.NewLatLngZoom(myposition, 15));
+                    mypostion = new LatLng(myLastLocation.Latitude, myLastLocation.Longitude);
+                    map.AnimateCamera(CameraUpdateFactory.NewLatLngZoom(mypostion, 15));
                 }
             }
 
+
+            //  Updates Location When Trip stared
             if (tripStarted)
             {
                 if (myLastLocation != null)
                 {
-                    var key = Resources.GetString(Resource.String.mapkey);
-                    myposition = new LatLng(50.15, 21.97);
-                    mapHelper.UpdateLocationToDestination(myposition, destinationPoint, map, key);
+                    string key = Resources.GetString(Resource.String.mapkey);
+                    mypostion = new LatLng(myLastLocation.Latitude, myLastLocation.Longitude);
+                    mapHelper.UpdateLocationToDestination(mypostion, destinationPoint, map, key);
                 }
             }
         }
 
-        private void StartLocationUpdates()
+        void StartLocationUpdates()
         {
             locationProviderClient.RequestLocationUpdates(mLocationRequest, mLocationCallback, null);
         }
-        private void StopLocationUpdates()
+
+        void StopLocationUpdates()
         {
             locationProviderClient.RemoveLocationUpdates(mLocationCallback);
         }
 
         private void PlaceLayout_Click(object sender, EventArgs e)
         {
+            // Prevents the place search functionality when trip has started
             if (tripStarted)
             {
                 return;
             }
+
             List<Place.Field> fields = new List<Place.Field>();
             fields.Add(Place.Field.Address);
             fields.Add(Place.Field.Name);
             fields.Add(Place.Field.LatLng);
 
-            Intent intent = new Autocomplete.IntentBuilder(AutocompleteActivityMode.Overlay, fields).SetCountry("PL").Build(this);
+            Intent intent = new Autocomplete.IntentBuilder(AutocompleteActivityMode.Overlay, fields)
+                .SetCountry("NG")
+                .Build(this);
 
             StartActivityForResult(intent, 0);
-        }
-
-        protected override void OnActivityResult(int requestCode, [GeneratedEnum] Android.App.Result resultCode, Intent data)
-        {
-            base.OnActivityResult(requestCode, resultCode, data);
-            if (resultCode == Android.App.Result.Ok)
-            {
-                var place = Autocomplete.GetPlaceFromIntent(data);
-                placeTextView.Text = place.Name;
-                destinationPoint = place.LatLng;
-                GetDirection();
-            }
         }
 
         private void GetDirectionButton_Click(object sender, System.EventArgs e)
@@ -241,28 +214,44 @@ namespace PathFinder
             GetDirection();
         }
 
-        public async void GetDirection()
+        async void GetDirection()
         {
-            getDirectionsButton.Visibility = Android.Views.ViewStates.Invisible;
+            getDirectionButton.Visibility = Android.Views.ViewStates.Invisible;
             startTripButton.Visibility = Android.Views.ViewStates.Visible;
             directionDrawn = true;
             centerMarker.Visibility = Android.Views.ViewStates.Invisible;
-            var key = Resources.GetString(Resource.String.mapkey);
+            string key = Resources.GetString(Resource.String.mapkey);
 
-            ShowProgressDialog("Getting Directions", false);
-            var directionJson = await mapHelper.GetDirectionJsonAsync(myposition, destinationPoint, key);
+            ShowProgressDialogue("Getting Directions", false);
+            string directionJson = await mapHelper.GetDirectionJsonAsync(mypostion, destinationPoint, key);
             map.Clear();
             mapHelper.DrawPolylineOnMap(directionJson, map);
-            CloseProgressDialog();
+            CloseProgressDialogue();
+        }
+
+        protected override void OnActivityResult(int requestCode, [GeneratedEnum] Result resultCode, Intent data)
+        {
+            base.OnActivityResult(requestCode, resultCode, data);
+
+            if (resultCode == Result.Ok)
+            {
+                var place = Autocomplete.GetPlaceFromIntent(data);
+                placeTextView.Text = place.Name;
+                destinationPoint = place.LatLng;
+                GetDirection();
+            }
+
         }
 
         public override void OnRequestPermissionsResult(int requestCode, string[] permissions, [GeneratedEnum] Android.Content.PM.Permission[] grantResults)
         {
+
             base.OnRequestPermissionsResult(requestCode, permissions, grantResults);
             if (grantResults.Length < 1)
             {
                 return;
             }
+
             if (grantResults[0] == (int)Android.Content.PM.Permission.Granted)
             {
                 DisplayLocation();
@@ -271,31 +260,36 @@ namespace PathFinder
 
         public void OnMapReady(GoogleMap googleMap)
         {
+            //Activates map styles
+
+            //var mapStyle = MapStyleOptions.LoadRawResourceStyle(this, Resource.Raw.mapstyle);
+            //googleMap.SetMapStyle(mapStyle);
+
             map = googleMap;
             map.UiSettings.ZoomControlsEnabled = true;
             map.CameraMoveStarted += Map_CameraMoveStarted;
             map.CameraIdle += Map_CameraIdle;
-            CreateMarkers();
 
-            if (CheckPermission())
+            if (CheckPersmission())
             {
+                // DisplayLocation();
                 StartLocationUpdates();
             }
-        }
 
-        private void CreateMarkers()
-        {
-            foreach (var marker in locationMarkers.LocationMarkers)
-            {
-                mapHelper.AddMarker(marker, map);
-            }
         }
 
         public override void OnBackPressed()
         {
+
             if (directionDrawn)
             {
-                ResetApp();
+                // Resets the app
+                directionDrawn = false;
+                map.Clear();
+                centerMarker.Visibility = Android.Views.ViewStates.Visible;
+                getDirectionButton.Visibility = Android.Views.ViewStates.Visible;
+                startTripButton.Visibility = Android.Views.ViewStates.Invisible;
+                DisplayLocation();
             }
             else
             {
@@ -311,8 +305,9 @@ namespace PathFinder
             }
 
             destinationPoint = map.CameraPosition.Target;
-            var key = Resources.GetString(Resource.String.mapkey);
-            var address = await mapHelper.FindCoordinateAddress(destinationPoint, key);
+            string key = Resources.GetString(Resource.String.mapkey);
+            string address = await mapHelper.FindCoordinateAddress(destinationPoint, key);
+
             if (!string.IsNullOrEmpty(address))
             {
                 placeTextView.Text = address;
@@ -321,6 +316,7 @@ namespace PathFinder
             {
                 placeTextView.Text = "Where to?";
             }
+
         }
 
         private void Map_CameraMoveStarted(object sender, GoogleMap.CameraMoveStartedEventArgs e)
@@ -329,51 +325,56 @@ namespace PathFinder
             {
                 return;
             }
-
             placeTextView.Text = "Setting new location";
         }
 
-        public bool CheckPermission()
+        bool CheckPersmission()
         {
-            var permissionGranted = false;
-            if (AndroidX.Core.App.ActivityCompat.CheckSelfPermission(this, Manifest.Permission.AccessCoarseLocation) == Android.Content.PM.Permission.Granted &&
-                AndroidX.Core.App.ActivityCompat.CheckSelfPermission(this, Manifest.Permission.AccessFineLocation) == Android.Content.PM.Permission.Granted)
+            bool permissionGranted = false;
+
+            if (ActivityCompat.CheckSelfPermission(this, Manifest.Permission.AccessCoarseLocation) != Android.Content.PM.Permission.Granted &&
+                ActivityCompat.CheckSelfPermission(this, Manifest.Permission.AccessFineLocation) != Android.Content.PM.Permission.Granted)
+            {
+                permissionGranted = false;
+            }
+            else
             {
                 permissionGranted = true;
             }
+
             return permissionGranted;
         }
 
-        public async void DisplayLocation()
+        async void DisplayLocation()
         {
             if (locationProviderClient == null)
             {
                 locationProviderClient = LocationServices.GetFusedLocationProviderClient(this);
+
             }
 
             myLastLocation = await locationProviderClient.GetLastLocationAsync();
             if (myLastLocation != null)
             {
-                myposition = new Android.Gms.Maps.Model.LatLng(50.15, 21.97);
-                map.AnimateCamera(CameraUpdateFactory.NewLatLngZoom(myposition, 15));
+                mypostion = new LatLng(myLastLocation.Latitude, myLastLocation.Longitude);
+                map.AnimateCamera(CameraUpdateFactory.NewLatLngZoom(mypostion, 15));
             }
         }
 
-        public void ShowProgressDialog(string status, bool cancelable)
+        void ShowProgressDialogue(string status, bool cancelable)
         {
-            ProgressDialog = new ProgressDialogFragment(status);
-            ProgressDialog.Cancelable = cancelable;
+            ProgressDialogue = new ProgressDialogFragment(status);
+            ProgressDialogue.Cancelable = cancelable;
             var trans = SupportFragmentManager.BeginTransaction();
-
-            ProgressDialog.Show(trans, "Progress");
-
+            ProgressDialogue.Show(trans, "Progress");
         }
-        public void CloseProgressDialog()
+
+        void CloseProgressDialogue()
         {
-            if (ProgressDialog != null)
+            if (ProgressDialogue != null)
             {
-                ProgressDialog.Dismiss();
-                ProgressDialog = null;
+                ProgressDialogue.Dismiss();
+                ProgressDialogue = null;
             }
         }
     }

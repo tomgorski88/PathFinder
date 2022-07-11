@@ -1,4 +1,5 @@
-﻿using Android.Gms.Maps;
+﻿using System;
+using Android.Gms.Maps;
 using Android.Gms.Maps.Model;
 using Android.Gms.Maps.Utils;
 using Android.Graphics;
@@ -21,16 +22,24 @@ namespace PathFinder.Helpers
 
             var handler = new HttpClientHandler();
             var httpClient = new HttpClient(handler);
-            var result = await httpClient.GetStringAsync(url);
-
-            if (!string.IsNullOrEmpty(result))
+            try
             {
-                var geoCodeData = JsonConvert.DeserializeObject<GeocodingParser>(result);
-                if (geoCodeData.status.Contains("OK"))
+                var result = await httpClient.GetStringAsync(url);
+
+                if (!string.IsNullOrEmpty(result))
                 {
-                    placeAddress = geoCodeData.results[0].formatted_address;
+                    var geoCodeData = JsonConvert.DeserializeObject<GeocodingParser>(result);
+                    if (geoCodeData.status.Contains("OK"))
+                    {
+                        placeAddress = geoCodeData.results[0].formatted_address;
+                    }
                 }
             }
+            catch (Exception ex)
+            {
+                
+            }
+
             return placeAddress;
         }
 

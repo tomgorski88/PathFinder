@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Globalization;
 using Android.Gms.Maps;
 using Android.Gms.Maps.Model;
 using Android.Gms.Maps.Utils;
@@ -17,7 +18,7 @@ namespace PathFinder.Helpers
 
         public async Task<string> FindCoordinateAddress(LatLng position, string mapkey)
         {
-            var url = $"https://maps.googleapis.com/maps/api/geocode/json?latlng={position.Latitude.ToString()},{position.Longitude.ToString()}&key={mapkey}";
+            var url = $"https://maps.googleapis.com/maps/api/geocode/json?latlng={position.Latitude.ToString(CultureInfo.InvariantCulture)},{position.Longitude.ToString(CultureInfo.InvariantCulture)}&key={mapkey}";
             var placeAddress = "";
 
             var handler = new HttpClientHandler();
@@ -45,7 +46,7 @@ namespace PathFinder.Helpers
 
         public async Task<string> GetDirectionJsonAsync(LatLng location, LatLng destination, string mapkey)
         {
-            var url = $"https://maps.googleapis.com/maps/api/directions/json?origin={location.Latitude.ToString()},{location.Longitude.ToString()}&destination={destination.Latitude.ToString()},{destination.Longitude.ToString()}&mode=driving&key={mapkey}";
+            var url = $"https://maps.googleapis.com/maps/api/directions/json?origin={location.Latitude.ToString(CultureInfo.InvariantCulture)},{location.Longitude.ToString(CultureInfo.InvariantCulture)}&destination={destination.Latitude.ToString(CultureInfo.InvariantCulture)},{destination.Longitude.ToString(CultureInfo.InvariantCulture)}&mode=driving&key={mapkey}";
             var handler = new HttpClientHandler();
             var httpClient = new HttpClient(handler);
             var jsonString = await httpClient.GetStringAsync(url);
